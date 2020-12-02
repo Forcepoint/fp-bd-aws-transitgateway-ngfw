@@ -1,0 +1,11 @@
+{
+  "url":"https://YOUR_PUBLIC_IP:8082",
+  "api_key":"SMC_API_KEY",
+  "api_version":"6.8",
+  "region":"AWS_REGION",
+  "availability_zone_1": "AWS_AZ_1",
+  "availability_zone_2": "AWS_AZ_2",
+  "ngfw_ami": "NGFW_AMI",
+  "lambda_bucket_name": "AWS_BUCKET_NAME"
+}
+
