@@ -1,0 +1,838 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "UserData": {
+            "Default": "{\"smc-contact\": {\"address\": \"\", \"port\": 8082, \"apikey\": \"\", \"tls\": true, \"check_certificate\": false}, \"location\": \"cloud\", \"auto-delete\": false, \"type\": \"single-firewall\"}",
+            "Type": "String"
+        },
+        "BucketName": {
+            "AllowedPattern": "^[0-9a-zA-Z]+([0-9a-zA-Z-]*[0-9a-zA-Z])*$",
+            "Default": "bd-tg-ngfw",
+            "Type": "String"
+        },
+        "KeyPrefix": {
+            "AllowedPattern": "^[0-9a-zA-Z-/]*$",
+            "Default": "Lambda-Functions/",
+            "Type": "String"
+        }
+    },
+    "Resources": {
+        "LambdaZipsBucket": {
+            "Type": "AWS::S3::Bucket",
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "c00ff796-53ab-4b23-90c2-9be1cc5f9b46"
+                }
+            }
+        },
+        "CopyZips": {
+            "Type": "Custom::CopyZips",
+            "Properties": {
+                "ServiceToken": {
+                    "Fn::GetAtt": [
+                        "CopyZipsFunction",
+                        "Arn"
+                    ]
+                },
+                "DestBucket": {
+                    "Ref": "LambdaZipsBucket"
+                },
+                "SourceBucket": {
+                    "Ref": "BucketName"
+                },
+                "Prefix": {
+                    "Ref": "KeyPrefix"
+                },
+                "Objects": [
+                    "config-smc/myDeploymentPackage.zip"
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "2e51dfad-3c0c-4bf0-b328-beec2308b9bc"
+                }
+            }
+        },
+        "CopyZipsRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                ],
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "lambda-copier",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:GetObject"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Sub": "arn:aws:s3:::${BucketName}/${KeyPrefix}*"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:PutObject",
+                                        "s3:DeleteObject"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::Sub": "arn:aws:s3:::${LambdaZipsBucket}/${KeyPrefix}*"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "c70d25f9-ca91-441a-9d3e-a15b87024362"
+                }
+            }
+        },
+        "CopyZipsFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Description": "Copies objects from a source S3 bucket to a destination",
+                "Handler": "index.handler",
+                "Runtime": "python2.7",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "CopyZipsRole",
+                        "Arn"
+                    ]
+                },
+                "Timeout": 240,
+                "Code": {
+                    "ZipFile": "import json\nimport logging\nimport threading\nimport boto3\nimport cfnresponse\ndef copy_objects(source_bucket, dest_bucket, prefix, objects):\n    s3 = boto3.client('s3')\n    for o in objects:\n        key = prefix + o\n        copy_source = {\n            'Bucket': source_bucket,\n            'Key': key\n        }\n        print('copy_source: %s' % copy_source)\n        print('dest_bucket = %s'%dest_bucket)\n        print('key = %s' %key)\n        s3.copy_object(CopySource=copy_source, Bucket=dest_bucket,\n              Key=key)\ndef delete_objects(bucket, prefix, objects):\n    s3 = boto3.client('s3')\n    objects = {'Objects': [{'Key': prefix + o} for o in objects]}\n    s3.delete_objects(Bucket=bucket, Delete=objects)\ndef timeout(event, context):\n    logging.error('Execution is about to time out, sending failure response to CloudFormation')\n    cfnresponse.send(event, context, cfnresponse.FAILED, {}, None)\ndef handler(event, context):\n    # make sure we send a failure to CloudFormation if the function\n    # is going to timeout\n    timer = threading.Timer((context.get_remaining_time_in_millis()\n              / 1000.00) - 0.5, timeout, args=[event, context])\n    timer.start()\n    print('Received event: %s' % json.dumps(event))\n    status = cfnresponse.SUCCESS\n    try:\n        source_bucket = event['ResourceProperties']['SourceBucket']\n        dest_bucket = event['ResourceProperties']['DestBucket']\n        prefix = event['ResourceProperties']['Prefix']\n        objects = event['ResourceProperties']['Objects']\n        if event['RequestType'] == 'Delete':\n            delete_objects(dest_bucket, prefix, objects)\n        else:\n            copy_objects(source_bucket, dest_bucket, prefix, objects)\n    except Exception as e:\n        logging.error('Exception: %s' % e, exc_info=True)\n        status = cfnresponse.FAILED\n    finally:\n        timer.cancel()\n        cfnresponse.send(event, context, status, {}, None)\n"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "91a284cd-21c6-4c8a-8276-b7f60fe508ee"
+                }
+            }
+        },
+        "MyFunctionRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+                    "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "cc93df03-27dd-4198-bcaf-c475e01ee45f"
+                }
+            }
+        },
+        "SMCConfig": {
+            "DependsOn": [
+                "CopyZips",
+                "AssociateInstance0"
+            ],
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "Description": "Smc Configuration",
+                "Environment": {
+                    "Variables": {
+                        "engine_name": {
+                            "Fn::Join": [
+                                ",",
+                                [
+                                    {
+                                        "Ref": "NGFWTransitGateway2"
+                                    }
+                                ]
+                            ]
+                        },
+                        "private_ip": {
+                            "Fn::Join": [
+                                ",",
+                                [
+                                    {
+                                        "Fn::GetAtt": [
+                                            "NGFWTransitGateway2",
+                                            "PrivateIp"
+                                        ]
+                                    }
+                                ]
+                            ]
+                        },
+                        "public_ip": {
+                            "Fn::Join": [
+                                ",",
+                                [
+                                    {
+                                        "Fn::GetAtt": [
+                                            "NGFWTransitGateway2",
+                                            "PublicIp"
+                                        ]
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                },
+                "Handler": "lambda_function.lambda_handler",
+                "Runtime": "python3.8",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "MyFunctionRole",
+                        "Arn"
+                    ]
+                },
+                "Timeout": 600,
+                "Code": {
+                    "S3Bucket": {
+                        "Ref": "LambdaZipsBucket"
+                    },
+                    "S3Key": {
+                        "Fn::Sub": "${KeyPrefix}config-smc/myDeploymentPackage.zip"
+                    }
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "70bdbf61-df10-4c76-893a-c33be8559753"
+                }
+            }
+        },
+        "Primerinvoke": {
+            "Type": "AWS::CloudFormation::CustomResource",
+            "DependsOn": "SMCConfig",
+            "Version": "1.0",
+            "Properties": {
+                "ServiceToken": {
+                    "Fn::GetAtt": [
+                        "SMCConfig",
+                        "Arn"
+                    ]
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "f5bb0eab-0e66-44c9-8e73-653291dfada0"
+                }
+            }
+        },
+        "vpc0b40973e5aa01818f": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": "100.64.0.0/16",
+                "InstanceTenancy": "default",
+                "EnableDnsSupport": "true",
+                "EnableDnsHostnames": "false",
+                "Tags": [
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    },
+                    {
+                        "Key": "env",
+                        "Value": "ngfw"
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw-vpc-ngfw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "3a281c01-3c93-4b98-80cf-602ca23d62b2"
+                }
+            }
+        },
+        "ngfwSubnet1a": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "CidrBlock": "100.64.0.0/24",
+                "AvailabilityZone": "ap-south-1a",
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw-vpc-ngfw-sub-a"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "ece6f4d3-51a3-49eb-b301-70e93f665d6f"
+                }
+            }
+        },
+        "igw07c6801e226af5391": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "vpc-ngfw-igw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "594f869d-1b42-41e4-888a-87cbcc8f4fdd"
+                }
+            }
+        },
+        "rtb02920164a5604bd6e": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "Tags": [
+                    {
+                        "Key": "env",
+                        "Value": "ngfw"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    },
+                    {
+                        "Key": "Name",
+                        "Value": "vpc-ngfw-rtb"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "307c0cda-4fbb-4a87-b88b-6d8a31051f33"
+                }
+            }
+        },
+        "NGFWTransitGateway2": {
+            "Type": "AWS::EC2::Instance",
+            "Properties": {
+                "UserData": {
+                    "Fn::Base64": {
+                        "Ref": "UserData"
+                    }
+                },
+                "DisableApiTermination": "false",
+                "InstanceInitiatedShutdownBehavior": "stop",
+                "ImageId": "ami-005202a99c799e86d",
+                "InstanceType": "c5.xlarge",
+                "KeyName": "ngfw-tgw-keypair",
+                "Monitoring": "false",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "NGFW-transit-gateway-0"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ],
+                "NetworkInterfaces": [
+                    {
+                        "DeviceIndex": 0,
+                        "NetworkInterfaceId": {
+                            "Ref": "EC2NI1QF98"
+                        }
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "853cf227-fd70-4ba2-814b-747780af6003"
+                }
+            },
+            "DependsOn": [
+                "EC2NI1QF98"
+            ]
+        },
+        "sgallowall": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Allow all",
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "-1",
+                        "FromPort": 0,
+                        "ToPort": 0,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "FromPort": 0,
+                        "ToPort": 0,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw-vpc-ngfw-security-group-allow-all"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "d16a6c0a-e6ec-4c90-8997-dde94cbacdfb"
+                }
+            }
+        },
+        "gw2": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "InternetGatewayId": {
+                    "Ref": "igw07c6801e226af5391"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "0cc159b3-0d2c-470e-b6a6-ccc5a220d4e0"
+                }
+            }
+        },
+        "route4": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "DestinationCidrBlock": "10.0.0.0/8",
+                "TransitGatewayId": {
+                    "Ref": "EC2TG3SC28"
+                },
+                "RouteTableId": {
+                    "Ref": "rtb02920164a5604bd6e"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "0eb8054a-4e91-4839-9808-08b9e1b81194"
+                }
+            },
+            "DependsOn": [
+                "EC2TGA52Z3K"
+            ]
+        },
+        "ingress1": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "GroupId": {
+                    "Ref": "sgallowall"
+                },
+                "IpProtocol": "-1",
+                "CidrIp": "0.0.0.0/0"
+            }
+        },
+        "egress1": {
+            "Type": "AWS::EC2::SecurityGroupEgress",
+            "Properties": {
+                "GroupId": {
+                    "Ref": "sgallowall"
+                },
+                "IpProtocol": "-1",
+                "CidrIp": "0.0.0.0/0"
+            }
+        },
+        "EC2TG3SC28": {
+            "Type": "AWS::EC2::TransitGateway",
+            "Properties": {
+                "Description": "Transit Gateway testing scenario with 4 VPCs, 2 subnets each",
+                "DefaultRouteTableAssociation": "disable",
+                "DefaultRouteTablePropagation": "disable",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "0f4e59c1-565e-41d4-b2ff-2c030c4197c5"
+                }
+            }
+        },
+        "EC2TGRTD6ZD": {
+            "Type": "AWS::EC2::TransitGatewayRouteTable",
+            "Properties": {
+                "TransitGatewayId": {
+                    "Ref": "EC2TG3SC28"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "tgw-protected-vpc-rt"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "a20facd2-908d-4519-abc9-8b17d55cd5b6"
+                }
+            },
+            "DependsOn": [
+                "EC2TG3SC28"
+            ]
+        },
+        "EC2TGA52Z3K": {
+            "Type": "AWS::EC2::TransitGatewayAttachment",
+            "Properties": {
+                "SubnetIds": [
+                    {
+                        "Ref": "ngfwSubnet1a"
+                    }
+                ],
+                "TransitGatewayId": {
+                    "Ref": "EC2TG3SC28"
+                },
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "tgw-att-ngfw"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "164489cf-18bf-42b8-99af-69982958cbf9"
+                }
+            },
+            "DependsOn": [
+                "vpc0b40973e5aa01818f",
+                "ngfwSubnet1a"
+            ]
+        },
+        "EC2TGRT2J3GE": {
+            "Type": "AWS::EC2::TransitGatewayRouteTableAssociation",
+            "Properties": {
+                "TransitGatewayAttachmentId": {
+                    "Ref": "EC2TGA52Z3K"
+                },
+                "TransitGatewayRouteTableId": {
+                    "Ref": "EC2TGRTD6ZD"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "f62b7971-0417-4e8b-903b-189f69d6e23b"
+                }
+            }
+        },
+        "EC2TGRT42RDJ": {
+            "Type": "AWS::EC2::TransitGatewayRouteTablePropagation",
+            "Properties": {
+                "TransitGatewayAttachmentId": {
+                    "Ref": "EC2TGA52Z3K"
+                },
+                "TransitGatewayRouteTableId": {
+                    "Ref": "EC2TGRTD6ZD"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "997287ad-7711-4fd1-861e-c0c25afc43f1"
+                }
+            }
+        },
+        "EC2CG3RU4M": {
+            "Type": "AWS::EC2::CustomerGateway",
+            "Properties": {
+                "Type": "ipsec.1",
+                "BgpAsn": "65534",
+                "IpAddress": {
+                    "Fn::GetAtt": [
+                        "NGFWTransitGateway2",
+                        "PublicIp"
+                    ]
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "NGFW-vpn-gateway-0"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "3e8d289d-0b18-41f3-a3ce-4a5cec41d82e"
+                }
+            },
+            "DependsOn": [
+                "NGFWTransitGateway2"
+            ]
+        },
+        "VPNConnection": {
+            "Type": "AWS::EC2::VPNConnection",
+            "Properties": {
+                "Type": "ipsec.1",
+                "StaticRoutesOnly": "false",
+                "CustomerGatewayId": {
+                    "Ref": "EC2CG3RU4M"
+                },
+                "TransitGatewayId": {
+                    "Ref": "EC2TG3SC28"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "ngfw-transit-vpn-connection-0"
+                    },
+                    {
+                        "Key": "scenario",
+                        "Value": "test-tgw"
+                    }
+                ]
+            }
+        },
+        "EC2NI1QF98": {
+            "Type": "AWS::EC2::NetworkInterface",
+            "Properties": {
+                "PrivateIpAddresses": [
+                    {
+                        "PrivateIpAddress": "100.64.0.170",
+                        "Primary": "true"
+                    }
+                ],
+                "GroupSet": [
+                    {
+                        "Ref": "sgallowall"
+                    }
+                ],
+                "SubnetId": {
+                    "Ref": "ngfwSubnet1a"
+                },
+                "SourceDestCheck": "false"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "3293052a-26ef-4a91-aa4f-cee3247e284a"
+                }
+            }
+        },
+        "AssociateInstance0": {
+            "Type": "AWS::EC2::EIPAssociation",
+            "Properties": {
+                "AllocationId": {
+                    "Fn::GetAtt": [
+                        "EC2EIP15TLT",
+                        "AllocationId"
+                    ]
+                },
+                "NetworkInterfaceId": {
+                    "Ref": "EC2NI1QF98"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "927fe5a4-3f06-43a5-8d31-d4fdfafc71e4"
+                }
+            }
+        },
+        "EC2EIP15TLT": {
+            "Type": "AWS::EC2::EIP",
+            "Properties": {
+                "Domain": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "666a9933-99bb-4adc-842e-9e64f8283934"
+                }
+            }
+        },
+        "EC2R2KI6O": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "RouteTableId": {
+                    "Ref": "rtb02920164a5604bd6e"
+                },
+                "GatewayId": {
+                    "Ref": "igw07c6801e226af5391"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "7464db25-1c16-4e56-9d41-22105be12b94"
+                }
+            }
+        },
+        "EC2SRTA3YQ09": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "ngfwSubnet1a"
+                },
+                "RouteTableId": {
+                    "Ref": "rtb02920164a5604bd6e"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "ea724200-79db-4c6c-b257-1867c1686afe"
+                }
+            }
+        },
+        "NGFWAutoscalingGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "InstanceId": {
+                    "Ref": "NGFWTransitGateway2"
+                },
+                "AvailabilityZones": [
+                    "ap-south-1a",
+                    "ap-south-1b",
+                    "ap-south-1c"
+                ],
+                "MinSize": "1",
+                "MaxSize": "3",
+                "DesiredCapacity": "1",
+                "AutoScalingGroupName": "NGFWAutoscalingGroup",
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "ngfwSubnet1a"
+                    },
+                    {
+                        "Ref": "EC2S1BE9X"
+                    },
+                    {
+                        "Ref": "EC2S4GFS"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "14aa08b3-bc0c-4ef4-84b3-eac9487f9391"
+                }
+            },
+            "DependsOn": [
+                "NGFWTransitGateway2",
+                "EC2S4GFS",
+                "EC2S1BE9X",
+                "ngfwSubnet1a",
+                "gw2"
+            ]
+        },
+        "ScalingPolicy": {
+            "Type": "AWS::AutoScaling::ScalingPolicy",
+            "Properties": {
+                "AutoScalingGroupName": "NGFWAutoscalingGroup"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "f026baef-def6-48ae-bf8b-0408375b4092"
+                }
+            }
+        },
+        "EC2S1BE9X": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "CidrBlock": "100.64.1.0/24",
+                "AvailabilityZone": "ap-south-1b",
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw-vpc-ngfw-sub-b"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "9d21b6ce-714f-4098-a1c4-b6d9a2d1fc17"
+                }
+            }
+        },
+        "EC2S4GFS": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "CidrBlock": "100.64.2.0/24",
+                "AvailabilityZone": "ap-south-1c",
+                "VpcId": {
+                    "Ref": "vpc0b40973e5aa01818f"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "test-tgw-vpc-ngfw-sub-c"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "cd35dccf-30cf-4e62-9cea-3c9fea4b8bc8"
+                }
+            }
+        }
+    },
+    "Description": "NGFW transit gateway"}
