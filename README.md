@@ -16,3 +16,4 @@ Basic setup
 2. Run package.sh in a linux environment
 3. Copy zip folder to an s3 Bucket folder structure Lambda-Functions/config-smc/myDeploymentPackage.zip
 4. Create new CloudFormation stack and upload tg-ngfw-2-engines.json
+5. In the Autoscaling tab in the EC2 section of AWS you can edit the group to deploy engines
