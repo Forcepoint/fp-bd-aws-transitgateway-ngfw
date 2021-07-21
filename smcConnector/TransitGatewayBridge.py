@@ -5,6 +5,7 @@ import sys
 
 from smcConnector.AwsConnector import get_vpn
 from smcConnector.Config import get_url, get_api_version, get_api_key
+from smcConnector.ipFomat import MyIPv4, string_to_ip
 
 parent_dir = os.path.abspath(os.path.dirname(__file__))
 vendor_dir = os.path.join(parent_dir, 'Libs')
@@ -177,4 +178,24 @@ def smc_configuration(engine_name, public_ip, private_ip, public_network):
 
     policy.upload(engine_name)
 
+    session.logout()
+
+
+def remove_smc_engines(engine_name, public_ip, private_ip):
+    session_login()
+    MASK = '255.255.255.0'
+    engine = Engine(engine_name)
+    routes = RouteVPN.objects.all()
+    gateways_to_delete = []
+    for route in list(routes):
+        route_name = route.name
+        if engine_name in route_name:
+            RouteVPN().get(route_name).delete()
+            gateways_to_delete.append((route_name.split(engine_name)[-1])[1:])
+    engine.delete()
+    for gw in gateways_to_delete:
+        ExternalGateway.get(gw).delete()
+    public_base = MyIPv4(public_ip) & MyIPv4(MASK)
+    public_network = string_to_ip(str(public_base) + '/24')
+    Network.get(f'awsnetwork-{public_network}').delete()
     session.logout()

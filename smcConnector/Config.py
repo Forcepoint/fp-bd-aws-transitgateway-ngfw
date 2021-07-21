@@ -36,6 +36,10 @@ def get_availability_zone_2(config_file=__config_file):
     return __get_configurations(config_file)['availability_zone_2']
 
 
+def get_availability_zone_3(config_file=__config_file):
+    return __get_configurations(config_file)['availability_zone_3']
+
+
 def get_ngfw_ami(config_file=__config_file):
     return __get_configurations(config_file)['ngfw_ami']
 
