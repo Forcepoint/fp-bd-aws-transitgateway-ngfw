@@ -2,7 +2,7 @@
     "AWSTemplateFormatVersion": "2010-09-09",
     "Parameters": {
         "UserData": {
-            "Default": "{\"smc-contact\": {\"address\": \"\", \"port\": 8082, \"apikey\": \"\", \"tls\": true, \"check_certificate\": false}, \"location\": \"cloud\", \"auto-delete\": false, \"type\": \"single-firewall\"}",
+            "Default": "",
             "Type": "String"
         },
         "BucketName": {
@@ -74,7 +74,7 @@
                 "Path": "/",
                 "Policies": [
                     {
-                        "PolicyName": "lambda-copier",
+                        "PolicyName": "lambdaCopier",
                         "PolicyDocument": {
                             "Version": "2012-10-17",
                             "Statement": [
@@ -163,50 +163,16 @@
         },
         "SMCConfig": {
             "DependsOn": [
-                "CopyZips",
-                "AssociateInstance0"
+                "CopyZips"
             ],
             "Type": "AWS::Lambda::Function",
             "Properties": {
                 "Description": "Smc Configuration",
                 "Environment": {
                     "Variables": {
-                        "engine_name": {
-                            "Fn::Join": [
-                                ",",
-                                [
-                                    {
-                                        "Ref": "NGFWTransitGateway2"
-                                    }
-                                ]
-                            ]
-                        },
-                        "private_ip": {
-                            "Fn::Join": [
-                                ",",
-                                [
-                                    {
-                                        "Fn::GetAtt": [
-                                            "NGFWTransitGateway2",
-                                            "PrivateIp"
-                                        ]
-                                    }
-                                ]
-                            ]
-                        },
-                        "public_ip": {
-                            "Fn::Join": [
-                                ",",
-                                [
-                                    {
-                                        "Fn::GetAtt": [
-                                            "NGFWTransitGateway2",
-                                            "PublicIp"
-                                        ]
-                                    }
-                                ]
-                            ]
-                        }
+                        "engine_name": "",
+                        "private_ip": "",
+                        "public_ip": ""
                     }
                 },
                 "Handler": "lambda_function.lambda_handler",
@@ -230,24 +196,6 @@
             "Metadata": {
                 "AWS::CloudFormation::Designer": {
                     "id": "70bdbf61-df10-4c76-893a-c33be8559753"
-                }
-            }
-        },
-        "Primerinvoke": {
-            "Type": "AWS::CloudFormation::CustomResource",
-            "DependsOn": "SMCConfig",
-            "Version": "1.0",
-            "Properties": {
-                "ServiceToken": {
-                    "Fn::GetAtt": [
-                        "SMCConfig",
-                        "Arn"
-                    ]
-                }
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "f5bb0eab-0e66-44c9-8e73-653291dfada0"
                 }
             }
         },
@@ -346,48 +294,6 @@
                     "id": "307c0cda-4fbb-4a87-b88b-6d8a31051f33"
                 }
             }
-        },
-        "NGFWTransitGateway2": {
-            "Type": "AWS::EC2::Instance",
-            "Properties": {
-                "UserData": {
-                    "Fn::Base64": {
-                        "Ref": "UserData"
-                    }
-                },
-                "DisableApiTermination": "false",
-                "InstanceInitiatedShutdownBehavior": "stop",
-                "ImageId": "ami-005202a99c799e86d",
-                "InstanceType": "c5.xlarge",
-                "KeyName": "ngfw-tgw-keypair",
-                "Monitoring": "false",
-                "Tags": [
-                    {
-                        "Key": "Name",
-                        "Value": "NGFW-transit-gateway-0"
-                    },
-                    {
-                        "Key": "scenario",
-                        "Value": "test-tgw"
-                    }
-                ],
-                "NetworkInterfaces": [
-                    {
-                        "DeviceIndex": 0,
-                        "NetworkInterfaceId": {
-                            "Ref": "EC2NI1QF98"
-                        }
-                    }
-                ]
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "853cf227-fd70-4ba2-814b-747780af6003"
-                }
-            },
-            "DependsOn": [
-                "EC2NI1QF98"
-            ]
         },
         "sgallowall": {
             "Type": "AWS::EC2::SecurityGroup",
@@ -536,6 +442,12 @@
                 "SubnetIds": [
                     {
                         "Ref": "ngfwSubnet1a"
+                    },
+                    {
+                        "Ref": "ngfwSubnet1b"
+                    },
+                    {
+                        "Ref": "ngfwSubnet1c"
                     }
                 ],
                 "TransitGatewayId": {
@@ -597,117 +509,6 @@
                 }
             }
         },
-        "EC2CG3RU4M": {
-            "Type": "AWS::EC2::CustomerGateway",
-            "Properties": {
-                "Type": "ipsec.1",
-                "BgpAsn": "65534",
-                "IpAddress": {
-                    "Fn::GetAtt": [
-                        "NGFWTransitGateway2",
-                        "PublicIp"
-                    ]
-                },
-                "Tags": [
-                    {
-                        "Key": "Name",
-                        "Value": "NGFW-vpn-gateway-0"
-                    },
-                    {
-                        "Key": "scenario",
-                        "Value": "test-tgw"
-                    }
-                ]
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "3e8d289d-0b18-41f3-a3ce-4a5cec41d82e"
-                }
-            },
-            "DependsOn": [
-                "NGFWTransitGateway2"
-            ]
-        },
-        "VPNConnection": {
-            "Type": "AWS::EC2::VPNConnection",
-            "Properties": {
-                "Type": "ipsec.1",
-                "StaticRoutesOnly": "false",
-                "CustomerGatewayId": {
-                    "Ref": "EC2CG3RU4M"
-                },
-                "TransitGatewayId": {
-                    "Ref": "EC2TG3SC28"
-                },
-                "Tags": [
-                    {
-                        "Key": "Name",
-                        "Value": "ngfw-transit-vpn-connection-0"
-                    },
-                    {
-                        "Key": "scenario",
-                        "Value": "test-tgw"
-                    }
-                ]
-            }
-        },
-        "EC2NI1QF98": {
-            "Type": "AWS::EC2::NetworkInterface",
-            "Properties": {
-                "PrivateIpAddresses": [
-                    {
-                        "PrivateIpAddress": "100.64.0.170",
-                        "Primary": "true"
-                    }
-                ],
-                "GroupSet": [
-                    {
-                        "Ref": "sgallowall"
-                    }
-                ],
-                "SubnetId": {
-                    "Ref": "ngfwSubnet1a"
-                },
-                "SourceDestCheck": "false"
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "3293052a-26ef-4a91-aa4f-cee3247e284a"
-                }
-            }
-        },
-        "AssociateInstance0": {
-            "Type": "AWS::EC2::EIPAssociation",
-            "Properties": {
-                "AllocationId": {
-                    "Fn::GetAtt": [
-                        "EC2EIP15TLT",
-                        "AllocationId"
-                    ]
-                },
-                "NetworkInterfaceId": {
-                    "Ref": "EC2NI1QF98"
-                }
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "927fe5a4-3f06-43a5-8d31-d4fdfafc71e4"
-                }
-            }
-        },
-        "EC2EIP15TLT": {
-            "Type": "AWS::EC2::EIP",
-            "Properties": {
-                "Domain": {
-                    "Ref": "vpc0b40973e5aa01818f"
-                }
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "666a9933-99bb-4adc-842e-9e64f8283934"
-                }
-            }
-        },
         "EC2R2KI6O": {
             "Type": "AWS::EC2::Route",
             "Properties": {
@@ -725,7 +526,7 @@
                 }
             }
         },
-        "EC2SRTA3YQ09": {
+        "RouteTableAssociationa": {
             "Type": "AWS::EC2::SubnetRouteTableAssociation",
             "Properties": {
                 "SubnetId": {
@@ -741,58 +542,7 @@
                 }
             }
         },
-        "NGFWAutoscalingGroup": {
-            "Type": "AWS::AutoScaling::AutoScalingGroup",
-            "Properties": {
-                "InstanceId": {
-                    "Ref": "NGFWTransitGateway2"
-                },
-                "AvailabilityZones": [
-                    "ap-south-1a",
-                    "ap-south-1b",
-                    "ap-south-1c"
-                ],
-                "MinSize": "1",
-                "MaxSize": "3",
-                "DesiredCapacity": "1",
-                "AutoScalingGroupName": "NGFWAutoscalingGroup",
-                "VPCZoneIdentifier": [
-                    {
-                        "Ref": "ngfwSubnet1a"
-                    },
-                    {
-                        "Ref": "EC2S1BE9X"
-                    },
-                    {
-                        "Ref": "EC2S4GFS"
-                    }
-                ]
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "14aa08b3-bc0c-4ef4-84b3-eac9487f9391"
-                }
-            },
-            "DependsOn": [
-                "NGFWTransitGateway2",
-                "EC2S4GFS",
-                "EC2S1BE9X",
-                "ngfwSubnet1a",
-                "gw2"
-            ]
-        },
-        "ScalingPolicy": {
-            "Type": "AWS::AutoScaling::ScalingPolicy",
-            "Properties": {
-                "AutoScalingGroupName": "NGFWAutoscalingGroup"
-            },
-            "Metadata": {
-                "AWS::CloudFormation::Designer": {
-                    "id": "f026baef-def6-48ae-bf8b-0408375b4092"
-                }
-            }
-        },
-        "EC2S1BE9X": {
+        "ngfwSubnet1b": {
             "Type": "AWS::EC2::Subnet",
             "Properties": {
                 "CidrBlock": "100.64.1.0/24",
@@ -809,11 +559,11 @@
             },
             "Metadata": {
                 "AWS::CloudFormation::Designer": {
-                    "id": "9d21b6ce-714f-4098-a1c4-b6d9a2d1fc17"
+                    "id": "cb8844c7-6254-4c59-a68e-cc97db03ed0e"
                 }
             }
         },
-        "EC2S4GFS": {
+        "ngfwSubnet1c": {
             "Type": "AWS::EC2::Subnet",
             "Properties": {
                 "CidrBlock": "100.64.2.0/24",
@@ -830,9 +580,343 @@
             },
             "Metadata": {
                 "AWS::CloudFormation::Designer": {
-                    "id": "cd35dccf-30cf-4e62-9cea-3c9fea4b8bc8"
+                    "id": "196529dd-21cc-4461-b74e-f448194104cc"
                 }
             }
+        },
+        "NGFWAutoscalingGroup": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "LaunchTemplate": {
+                    "LaunchTemplateId": {
+                        "Ref": "NGFWLaunchTemplate"
+                    },
+                    "Version": "1"
+                },
+                "AvailabilityZones": [
+                    "ap-south-1a",
+                    "ap-south-1b",
+                    "ap-south-1c"
+                ],
+                "VPCZoneIdentifier": [
+                    {
+                        "Ref": "ngfwSubnet1a"
+                    },
+                    {
+                        "Ref": "ngfwSubnet1b"
+                    },
+                    {
+                        "Ref": "ngfwSubnet1c"
+                    }
+                ],
+                "MinSize": "0",
+                "MaxSize": "3",
+                "DesiredCapacity": "0"
+            },
+            "DependsOn": [
+                "gw2",
+                "ngfwSubnet1b",
+                "ngfwSubnet1c",
+                "ngfwSubnet1a"
+            ],
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "2499e4ae-8e73-4e35-b14c-a378a334d557"
+                }
+            }
+        },
+        "PermissionForEventsToInvokeLambda": {
+            "Type": "AWS::Lambda::Permission",
+            "Properties": {
+                "FunctionName": {
+                    "Ref": "SMCConfig"
+                },
+                "Action": "lambda:InvokeFunction",
+                "Principal": "events.amazonaws.com",
+                "SourceArn": {
+                    "Fn::GetAtt": [
+                        "ER1709N",
+                        "Arn"
+                    ]
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "30e4b3de-de2b-48c9-85c5-705247b0f216"
+                }
+            },
+            "DependsOn": [
+                "SMCConfig"
+            ]
+        },
+        "ER1709N": {
+            "Type": "AWS::Events::Rule",
+            "Properties": {
+                "EventPattern": {
+                    "source": [
+                        "aws.autoscaling"
+                    ],
+                    "detail-type": [
+                        "EC2 Instance-launch Lifecycle Action",
+                        "EC2 Instance-terminate Lifecycle Action"
+                    ],
+                    "detail": {
+                        "AutoScalingGroupName": [
+                            {
+                                "Ref": "NGFWAutoscalingGroup"
+                            }
+                        ]
+                    }
+                },
+                "Name": "LogAutoScalingEventRule",
+                "State": "ENABLED",
+                "Targets": [
+                    {
+                        "Arn": {
+                            "Fn::GetAtt": [
+                                "SMCConfig",
+                                "Arn"
+                            ]
+                        },
+                        "Id": "StartLambdav1"
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "fded14ae-d89c-439e-9cbe-4ae22e631cbc"
+                }
+            },
+            "DependsOn": [
+                "NGFWAutoscalingGroup"
+            ]
+        },
+        "spinUpEngines": {
+            "Type": "AWS::AutoScaling::LifecycleHook",
+            "Properties": {
+                "AutoScalingGroupName": {
+                    "Ref": "NGFWAutoscalingGroup"
+                },
+                "DefaultResult": "CONTINUE",
+                "HeartbeatTimeout": 300,
+                "LifecycleHookName": "spinUpEngines",
+                "LifecycleTransition": "autoscaling:EC2_INSTANCE_LAUNCHING"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "717904c3-f3f7-488a-a987-d3d6a2c13257"
+                }
+            },
+            "DependsOn": [
+                "NGFWAutoscalingGroup"
+            ]
+        },
+        "messageRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+                    "arn:aws:iam::aws:policy/AdministratorAccess"
+                ],
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "LifecycleFunctionLogsPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "logs:CreateLogGroup",
+                                        "logs:CreateLogStream",
+                                        "logs:PutLogEvents"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "LifecycleFunctionSSMSendCommandDocumentPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ssm:SendCommand"
+                                    ],
+                                    "Resource": {
+                                        "Fn::Sub": "arn:aws:ssm:${AWS::Region}::document/AWS-RunShellScript"
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "LifecycleFunctionSSMSendCommandInstancePolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ssm:SendCommand"
+                                    ],
+                                    "Resource": "arn:aws:ec2:*:*:instance/*",
+                                    "Condition": {
+                                        "StringEquals": {
+                                            "ssm:ResourceTag/aws:autoscaling:groupName": [
+                                                {
+                                                    "Ref": "NGFWAutoscalingGroup"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "LifecycleFunctionSSMGetCommandInvocationPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ssm:GetCommandInvocation"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "PolicyName": "LogAutoScalingEventPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "autoscaling:CompleteLifecycleAction"
+                                    ],
+                                    "Resource": {
+                                        "Fn::Sub": [
+                                            "arn:aws:autoscaling:${AWS::Region}:${AWS::AccountId}:autoScalingGroup:*:autoScalingGroupName/${ASGroupName}",
+                                            {
+                                                "ASGroupName": {
+                                                    "Ref": "NGFWAutoscalingGroup"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                ]
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "2a58ffb2-6eae-47ea-a57f-8ddc98fa65b0"
+                }
+            },
+            "DependsOn": [
+                "NGFWAutoscalingGroup"
+            ]
+        },
+        "NGFWLaunchTemplate": {
+            "Type": "AWS::EC2::LaunchTemplate",
+            "Properties": {
+                "LaunchTemplateData": {
+                    "DisableApiTermination": "false",
+                    "ImageId": "ami-005202a99c799e86d",
+                    "InstanceType": "c5.xlarge",
+                    "KeyName": "ngfw-tgw-keypair",
+                    "UserData": {
+                        "Fn::Base64": {
+                            "Ref": "UserData"
+                        }
+                    }
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "fe83810b-ad85-4336-8fc6-3c2c2bb63e4e"
+                }
+            },
+            "DependsOn": [
+                "ngfwSubnet1a",
+                "ngfwSubnet1c",
+                "ngfwSubnet1b"
+            ]
+        },
+        "RouteTableAssociationb": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "rtb02920164a5604bd6e"
+                },
+                "SubnetId": {
+                    "Ref": "ngfwSubnet1b"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "3cbf281d-ebbf-4e81-9085-7df243cf92cf"
+                }
+            }
+        },
+        "RouteTableAssociationc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "rtb02920164a5604bd6e"
+                },
+                "SubnetId": {
+                    "Ref": "ngfwSubnet1c"
+                }
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "fb005283-4371-4c1e-975c-147fbb4f9bb3"
+                }
+            }
+        },
+        "spinDownEngines": {
+            "Type": "AWS::AutoScaling::LifecycleHook",
+            "Properties": {
+                "AutoScalingGroupName": {
+                    "Ref": "NGFWAutoscalingGroup"
+                },
+                "DefaultResult": "CONTINUE",
+                "HeartbeatTimeout": 300,
+                "LifecycleHookName": "spinDownEngines",
+                "LifecycleTransition": "autoscaling:EC2_INSTANCE_TERMINATING"
+            },
+            "Metadata": {
+                "AWS::CloudFormation::Designer": {
+                    "id": "9dca1d3f-28f4-4905-b94a-ea8b8775575b"
+                }
+            },
+            "DependsOn": [
+                "NGFWAutoscalingGroup"
+            ]
         }
     },
-    "Description": "NGFW transit gateway"}
+    "Description": "NGFW transit gateway"
+}

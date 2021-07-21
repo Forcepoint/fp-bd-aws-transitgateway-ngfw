@@ -5,6 +5,7 @@
   "region":"AWS_REGION",
   "availability_zone_1": "AWS_AZ_1",
   "availability_zone_2": "AWS_AZ_2",
+  "availability_zone_3": "AWS_AZ_3",
   "ngfw_ami": "NGFW_AMI",
   "lambda_bucket_name": "AWS_BUCKET_NAME"
 }

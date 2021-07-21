@@ -1,4 +1,4 @@
-rm ./tg-ngfw-2-engines.json
+rm ./autoscale-tg-ngfw.json
 rm ./myDeploymentPackage.zip
 pip3 install -r ./Packager/requirements.txt -t ./smcConnector/Libs
 chmod -R 755 ./smcConnector/.
