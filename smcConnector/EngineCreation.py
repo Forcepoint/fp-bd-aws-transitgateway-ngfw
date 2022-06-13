@@ -3,26 +3,31 @@ import os
 import sys
 import time
 
-from smcConnector.Config import get_url, get_api_version, get_api_key
-
 parent_dir = os.path.abspath(os.path.dirname(__file__))
 vendor_dir = os.path.join(parent_dir, 'Libs')
-pem_dir = os.path.join(parent_dir, 'smc.pem')
+
 sys.path.append(vendor_dir)
 
+from smcConnector.common import session_login
 import smc
 from smc import session
 from smc.core.engine import Engine
 from smc.elements.network import Router, Network
 from smc.vpn.elements import VPNProfile
 
-PROFILE_NAME = "aws_profile"
 
+PROFILE_NAME = "aws_profile"
+#import logging
+#logging.getLogger()
+#logging.basicConfig(level=logging.DEBUG,
+#                    format='%(asctime)s %(levelname)s: %(message)s')
 
 def engine_creation(engine_name, private_ip, public_ip, protected_network, router_ip, private_network):
-    session.login(url=get_url(), api_key=get_api_key(), api_version=get_api_version(), verify=pem_dir)
+    session_login()
 
     profile = VPNProfile.get_or_create(name=PROFILE_NAME)
+ #   print("Got profile {}".format(profile))
+ #   sys.exit(0)
     profile.update(capabilities=
     {
         'ike_v1': True,
@@ -97,3 +102,5 @@ def engine_creation(engine_name, private_ip, public_ip, protected_network, route
     ca.add_contact_address(public_ip, location='Default')
 
     session.logout()
+
+#engine_creation("1", "2", "3", "4", 5, 6)

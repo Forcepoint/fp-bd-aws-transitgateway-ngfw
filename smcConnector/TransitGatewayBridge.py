@@ -2,14 +2,15 @@
 import logging
 import os
 import sys
+import time
 
 from smcConnector.AwsConnector import get_vpn
-from smcConnector.Config import get_url, get_api_version, get_api_key
 from smcConnector.ipFomat import MyIPv4, string_to_ip
+from smcConnector.common import session_login
+from smcConnector import Config
 
 parent_dir = os.path.abspath(os.path.dirname(__file__))
 vendor_dir = os.path.join(parent_dir, 'Libs')
-pem_dir = os.path.join(parent_dir, 'smc.pem')
 sys.path.append(vendor_dir)
 
 from smc import session
@@ -38,7 +39,7 @@ def bgp_elements(aws_ASN, vgw_id, tunnel_inside_ip_1, tunnel_inside_ip_2, engine
         logging.info(err)
 
     try:
-        AutonomousSystem().create(name='ngfw-as', as_number=65000, comment='NGFW ASN')
+        AutonomousSystem().create(name='ngfw-as', as_number=65534, comment='NGFW ASN')
     except CreateElementFailed as err:
         logging.info(err)
 
@@ -58,6 +59,7 @@ def bgp_elements(aws_ASN, vgw_id, tunnel_inside_ip_1, tunnel_inside_ip_2, engine
     except CreateElementFailed as err:
         logging.info(err)
 
+    engine.dynamic_routing.update_ecmp(4)
     engine.dynamic_routing.bgp.enable(autonomous_system=AutonomousSystem(name='ngfw-as'),
                                       announced_networks=[Network('Any network')])
 
@@ -88,10 +90,6 @@ def external_gateway(name, address, endpoint_name, network_name, status=True):
     return remote_gateway
 
 
-def session_login():
-    session.login(url=get_url(), api_key=get_api_key(), api_version=get_api_version(), verify=pem_dir)
-
-
 def add_tunnel_to_engine(engine_name, interface, address, cidr_range, zone_ref):
     try:
         Engine(engine_name).tunnel_interface.add_layer3_interface(
@@ -108,8 +106,17 @@ def firewall_rule(policy_name):
     policy = FirewallPolicy(policy_name)
     log_options = rule_elements.LogOptions()
     log_options.log_level = 'stored'
-    policy.fw_ipv4_access_rules.create(name='anyrule', sources='any', destinations='any', services='any',
-                                       action=['allow'], comment='an allow rule', log_options=log_options)
+
+    for r in policy.fw_ipv4_access_rules.all():
+        if r.name == "anyrule":
+            print("anyrule created already")
+            return policy
+
+    policy.fw_ipv4_access_rules.create(name='anyrule', sources='any',
+                                       destinations='any', services='any',
+                                       action=['allow'],
+                                       comment='an allow rule',
+                                       log_options=log_options)
     return policy
 
 
@@ -135,7 +142,11 @@ def vpn_create_ipsec(engine_name, interface_id, preshared_key, vpn_name, vpn_num
 
 def smc_configuration(engine_name, public_ip, private_ip, public_network):
     session_login()
-    vpn_name, tunnel_1, tunnel_2 = get_vpn(public_ip)
+    vpn_name, tunnel_1, tunnel_2, cgw_tgw_attachment, vpc_tgw_attachment = get_vpn(public_ip)
+
+
+    print("Tunnel 1 {}".format(tunnel_1))
+    print("Tunnel 2 {}".format(tunnel_2))
 
     network_name = f'awsnetwork-{public_network}'
     try:
@@ -143,29 +154,45 @@ def smc_configuration(engine_name, public_ip, private_ip, public_network):
     except CreateElementFailed as err:
         logging.info(err)
 
-    l3fw_policy('transit_gw_policy')
-    policy = firewall_rule('transit_gw_policy')
+    policy_name = Config.get_policy_name()
+    if not policy_name:
+        policy_name = "transit_gw_policy"
 
-    add_tunnel_to_engine(engine_name, '2000', tunnel_1.get('outside_ip'), tunnel_1.get('inside_ip_cidr'), 'tunnelA')
-    add_tunnel_to_engine(engine_name, '2001', tunnel_2.get('outside_ip'), tunnel_2.get('inside_ip_cidr'), 'tunnelB')
 
+    tmp = tunnel_1.get('inside_ip_cidr').split("/")[0].split(".")
+    tmp[3] = str(int(tmp[3]) + 2)
+    inside_ip = ".".join(tmp)
+    add_tunnel_to_engine(engine_name, '2000', tunnel_1.get('cust_inside_ip'),
+                         tunnel_1.get('inside_ip_cidr'), 'tunnelA')
+
+    tmp = tunnel_2.get('inside_ip_cidr').split("/")[0].split(".")
+    tmp[3] = str(int(tmp[3]) + 2)
+    inside_ip = ".".join(tmp)
+    add_tunnel_to_engine(engine_name, '2001', tunnel_2.get('cust_inside_ip'),
+                         tunnel_2.get('inside_ip_cidr'), 'tunnelB')
+
+    remote_gateway_first = None
     try:
         remote_gateway_first = external_gateway(
             name=f'{vpn_name}-{1}', endpoint_name='endpoint_1',
             address=tunnel_1.get('outside_ip'),
             network_name=network_name)  # site-to-site vpn connection VPN ID include number at the end
     except CreateElementFailed as err:
+        print("Got error {}".format(err))
         logging.info(err)
 
+    remote_gateway_second = None
     try:
         remote_gateway_second = external_gateway(
             name=f'{vpn_name}-{2}', endpoint_name='endpoint_2',
             address=tunnel_2.get('outside_ip'),
             network_name=network_name)  # site-to-site vpn connection VPN ID include number at the end
     except CreateElementFailed as err:
+        print("Got error {} for ep2".format(err))
         logging.info(err)
 
-    bgp_elements(64512, vpn_name, tunnel_1.get('gateway'), tunnel_2.get('gateway'),
+    bgp_elements(64512, vpn_name, tunnel_1.get('gateway_inside_ip'),
+                 tunnel_2.get('gateway_inside_ip'),
                  engine_name)  # transit gateway : Amazon ASN inside ip is from tunnel of vpn - the /30
 
     add_dynamic_routing_antispoofing(engine_name)
@@ -173,12 +200,28 @@ def smc_configuration(engine_name, public_ip, private_ip, public_network):
     vpn_endpoint = Engine(engine_name).vpn_endpoint.get_contains(private_ip)
     vpn_endpoint.update(enabled=True)
 
-    vpn_create_ipsec(engine_name, 2000, tunnel_1.get('pre_shared_key'), vpn_name, 1, remote_gateway_first)
-    vpn_create_ipsec(engine_name, 2001, tunnel_2.get('pre_shared_key'), vpn_name, 2, remote_gateway_second)
+    if remote_gateway_first:
+        vpn_create_ipsec(engine_name, 2000, tunnel_1.get('pre_shared_key'),
+                         vpn_name, 1, remote_gateway_first)
+    if remote_gateway_second:
+        vpn_create_ipsec(engine_name, 2001, tunnel_2.get('pre_shared_key'),
+                         vpn_name, 2, remote_gateway_second)
 
-    policy.upload(engine_name)
+    print("Using policy {}".format(policy_name))
+    l3fw_policy(policy_name)
+    upload_tries = 18
+    while upload_tries:
+        try:
+            upload_tries = upload_tries - 1
+            policy = firewall_rule(policy_name)
+            policy.upload(engine_name)
+            break
+        except Exception as err:
+            print("Got error {} for smc policy_upload".format(err))
+            time.sleep(10)
 
     session.logout()
+    return cgw_tgw_attachment
 
 
 def remove_smc_engines(engine_name, public_ip, private_ip):

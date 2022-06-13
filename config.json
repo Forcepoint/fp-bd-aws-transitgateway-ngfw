@@ -1,12 +1,22 @@
 {
   "url":"https://YOUR_PUBLIC_IP:8082",
+  "api_version ":"6.10",
   "api_key":"SMC_API_KEY",
-  "api_version":"6.8",
   "region":"AWS_REGION",
   "availability_zone_1": "AWS_AZ_1",
   "availability_zone_2": "AWS_AZ_2",
   "availability_zone_3": "AWS_AZ_3",
   "ngfw_ami": "NGFW_AMI",
   "lambda_bucket_name": "AWS_BUCKET_NAME"
+  "lambda_bucket_name": "bd-tg-ngfw",
+  "vpc_network": "100.64.0.0/16",
+  "availability_zone_1_subnet": "100.64.0.0/24",
+  "availability_zone_2_subnet": "100.64.1.0/24",
+  "availability_zone_3_subnet": "100.64.2.0/24",
+  "cloud_formation_name_prefix": "test-tgw",
+  "___logserver_pool": [ "DELETE leading ___ and give comma separted list of log servers. If you have log server pool. For example LOGSERVER-01, LOGSERVER-02" ],
+  "location": "cloud",
+  "protected_network": "10.0.0.0/8",
+  "policy_name": "transit_gw_policy"
 }
 
